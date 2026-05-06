@@ -3,7 +3,7 @@ module bitcaskdb
 go 1.26
 
 require (
-	github.com/bwmarrin/snowflake v0.3.0
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/rosedblabs/wal v1.3.8
 )
 
