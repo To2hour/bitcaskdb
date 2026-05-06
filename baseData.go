@@ -8,12 +8,12 @@ import (
 type LogRecordType = byte
 
 const (
-	// LogRecordNormal is the normal log record type.
-	LogRecordNormal LogRecordType = iota
-	// LogRecordDeleted is the deleted log record type.
-	LogRecordDeleted
-	// LogRecordBatchFinished is the batch finished log record type.
-	LogRecordBatchFinished
+	// Normal baseData正常
+	Normal LogRecordType = iota
+	// Deleted baseData删除
+	Deleted
+	// Finished baseData结束
+	Finished
 )
 
 // keySize和valueSize用varInt，节省一点内存空间
