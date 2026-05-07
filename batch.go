@@ -63,8 +63,13 @@ func (b *batch) Commit() {
 	//todo 先检查合法性
 	// 然后把pendingBaseData里的数据用encodeBaseDataStruct加密成byte，然后用wal.PendingWrites写进去
 	// 然后制造一个完成的数据同样加密并放进去
-	// 然后就先告一段落
+	// wal的write会返回一个ChunkPosition对象。查询的时候需要传入这个对象才行
+	// 所以得在db或者batch里维护一个数据结构，
+	// 不用map是因为map 1.无序 2. 复制开销太大
+	// value放ChunkPosition
+	// 我认为放db里吧,wal对象也是再db里的，就是有个问题，为什么rosedb项目不选择map呢
 }
+
 func (b *batch) checkPendingBaseData(key []byte) *baseDataStruct {
 	//先检查map里有没有
 	hashkey := util.ByteHash(key)
