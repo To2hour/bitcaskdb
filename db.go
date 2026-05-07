@@ -30,3 +30,12 @@ type DB struct {
 	expiredCursorKey []byte     // the location to which DeleteExpiredKeys executes.
 	cronScheduler    *cron.Cron // cron scheduler for auto merge task
 }
+
+func (db *DB) NewBatch() *Batch {
+	b := &Batch{
+		db:        db,
+		mu:        sync.RWMutex{},
+		committed: false,
+	}
+	return b
+}

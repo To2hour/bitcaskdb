@@ -32,6 +32,9 @@ func (bit *BTreeIndexer) Put(key []byte, position *wal.ChunkPosition) *wal.Chunk
 		key:      key,
 		position: position,
 	})
+	if oldBTreeItem == nil {
+		return nil
+	}
 	return oldBTreeItem.(*BTreeItem).position
 }
 
