@@ -62,9 +62,20 @@ func (bit *BTreeIndexer) Delete(key []byte) *wal.ChunkPosition {
 	return nil
 }
 
-func (B *BTreeIndexer) Iterator(key []byte, position *wal.ChunkPosition) *wal.ChunkPosition {
-	//todo 以后实现
-	return nil
+// Iterator 我需要返回一个IteratorXX对象,这个对象应该得有next方法
+func (bit *BTreeIndexer) Iterator(reverse bool) IndexerIterator {
+	current := func() *BTreeItem {
+		if reverse {
+			return bit.tree.Max().(*BTreeItem)
+		}
+		return bit.tree.Min().(*BTreeItem)
+	}()
+	return &BtreeIterator{
+		current: current,
+		reverse: reverse,
+		valid:   false,
+		tree:    bit.tree.Clone(),
+	}
 }
 
 func (bit *BTreeIndexer) Size() int {

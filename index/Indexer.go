@@ -15,10 +15,34 @@ type Indexer interface {
 	//	Delete 如果没有返回nil。否则返回老的v
 	Delete(key []byte) *wal.ChunkPosition
 
-	// Iterator 迭代器晚点再弄，这个复杂
-	Iterator(key []byte, position *wal.ChunkPosition) *wal.ChunkPosition
+	// Iterator todo 迭代器晚点再弄，这个复杂
+	Iterator(reverse bool) IndexerIterator
 
 	Size() int
+}
+
+// IndexerIterator 迭代器
+type IndexerIterator interface {
+	// Rewind 重置迭代器，从0开始
+	Rewind()
+
+	// Seek 跳转到key的位置
+	Seek(key []byte)
+
+	// Next 移动到下一个位置
+	Next()
+
+	// Valid 检查是否合法
+	Valid() bool
+
+	// Key 返回当前元素的key
+	Key() []byte
+
+	// Value 返回当前元素的value
+	Value() *wal.ChunkPosition
+
+	// Close 关闭这个迭代器
+	Close()
 }
 
 // IndexerType 索引类型
