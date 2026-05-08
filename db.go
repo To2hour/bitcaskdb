@@ -36,7 +36,7 @@ type DB struct {
 	//所以针对commit，rollback操作需要获取db的mu锁，get，put这种获取batch自己的锁就行
 	batchPool sync.Pool
 	mu        sync.RWMutex
-	//在batch的put的中，装最基础数据,同样是避免频繁remake
+	//在batch的put的中，装最基础数据,同样是避免频繁make
 	baseDataStructPool sync.Pool
 
 	// 一个常驻的切片，用于在baseData加密中提供一个容器，避免频繁make
@@ -82,7 +82,7 @@ func Open(option *Options) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if lockResult {
+	if !lockResult {
 		return nil, ErrDatabaseIsUsing
 	}
 	// 初始化db
@@ -96,12 +96,85 @@ func Open(option *Options) (*DB, error) {
 	}
 
 	// 打开wal
+	if db.dataFiles, err = openDataWal(option); err != nil {
+		return nil, err
+	}
 
 	// 加载索引
+	//todo 我的思路是：把indexer用同样的wal存起来。第一个val放编号(我认为可以直接用当前的activeSegment)
+	// 然后从wal加载进来后，根据编号去加载后面的
+	// 不过首先得做到遍历indexer
+	// 所以下午我需要把indexer的Iterator弄了
+
 	// 解析cron表达式并创建定时任务
 
 	return db, nil
 }
+
+// Close todo 把各种数据结构清空。文件句柄还回去,锁释放
+func (db *DB) Close() {
+
+}
+
+// Put todo 暂时先byte，未来改成any
+func (db *DB) Put(key, value []byte) error {
+	batch := db.batchPool.Get().(*Batch)
+	//把batch清空，否则有问题
+	defer db.batchPool.Put(batch)
+	defer batch.reset()
+	batch.init(false, db)
+	batch.Lock()
+	if err := batch.Put(key, value); err != nil {
+		return err
+	}
+	if err := batch.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+func (db *DB) Get(key []byte) ([]byte, error) {
+	batch := db.batchPool.Get().(*Batch)
+	//把batch清空，否则有问题
+	defer db.batchPool.Put(batch)
+	defer batch.reset()
+	batch.init(true, db)
+	batch.Lock()
+	res, err := batch.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+func (db *DB) Delete(key []byte) error {
+	batch := db.batchPool.Get().(*Batch)
+	//把batch清空，否则有问题
+	defer db.batchPool.Put(batch)
+	defer batch.reset()
+	batch.init(false, db)
+	batch.Lock()
+	if err := batch.Delete(key); err != nil {
+		return err
+	}
+	if err := batch.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// openDataWal 打开数据的wal
+func openDataWal(option *Options) (*wal.WAL, error) {
+	open, err := wal.Open(wal.Options{
+		DirPath:        option.DirPath,
+		SegmentSize:    option.SegmentSize,
+		SegmentFileExt: dataFileNameSuffix,
+		//下面这两个不知道干嘛的，先不管
+		Sync:         false,
+		BytesPerSync: 0,
+	})
+	return open, err
+}
+
+// 检查db的option是否合法
 func checkOptions(option *Options) error {
 	if option.DirPath == "" {
 		return errors.New("数据库路径不能为空")
@@ -112,9 +185,13 @@ func checkOptions(option *Options) error {
 	//todo cron晚点检查
 	return nil
 }
+
+// 给db的batchPool初始化用的，batch如果还想使用需要init
 func newBatch() any {
 	return &Batch{}
 }
+
+// 给db的baseDataStructPool初始化用的
 func newBaseDataStruct() any {
 	return &baseDataStruct{}
 }

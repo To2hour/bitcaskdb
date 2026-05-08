@@ -41,11 +41,11 @@ Payload = Byte stream as long as specified by the payload size
 ## 整体的逻辑流程：
 1. 用户先打开数据库，调用open
 	1. open会调用wal的open，获取最新的seg的句柄
-2. 调用put
+2. db层维护了batchPool，一个db可以操控多个batch，batch分成只读和写，在db层调用put的时候都需要获取下db的读写锁mu。读batch获取读锁。db获取batch的时候需要给该batch绑定db的mu锁
 	1. put会调用batch的put和commit
 		1. batch是一个批处理的工具，
 		2. batch.put: 把传入的kv直接存在batch结构的一个list：pendingWrite中,没了，加一个判断，如果list中有这个数据就更新
-		3. batch.commit:遍历pendingWrite，把数据解析成payload需要的格式并调用wal的PendingWrites加进去。然后加一条结束的数据标识用来保证原子性。最后调用wal的writeAll一次写进去，并把返回的坐标存起来，这里是存到了**indexer**中
+		3. batch.commit:遍历pendingWrite，把数据解析成payload需要的格式并调用wal的PendingWrites加进去。然后加一条结束的数据标识用来保证原子性。最后调用wal的writeAll一次写进去，并把返回的坐标存起来，这里是存到了**indexer**中。commit是只有写batch才能操控
 3. 调用get
 	1. get会调用batch的get
 		1. batch的get先检查list里有没有，有就直接返回

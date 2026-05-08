@@ -40,7 +40,7 @@ const (
 
 // DbDefaultOptions 给db默认用的选项
 var DbDefaultOptions = &Options{
-	DirPath:           tempDBDir(),
+	DirPath:           "./example",
 	SegmentSize:       1 * GB,
 	Sync:              false,
 	AutoMergeCronExpr: "",

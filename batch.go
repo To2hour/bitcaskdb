@@ -44,6 +44,10 @@ func (b *Batch) Unlock() {
 		b.db.mu.Unlock()
 	}
 }
+func (b *Batch) init(readOnly bool, db *DB) {
+	b.db = db
+	b.readOnly = readOnly
+}
 
 // Put 读,写batch都行，用batch本身的锁就行
 func (b *Batch) Put(key, value []byte) error {
@@ -91,13 +95,13 @@ func (b *Batch) Delete(key []byte) error {
 }
 func (b *Batch) Commit() error {
 	//commit完了这个batch就直接不要了，所以得把锁还了
-	defer b.mu.Unlock()
+	defer b.Unlock()
 	if b.readOnly {
 		return ErrReadOnlyBatch
 	}
 
 	b.mu.Lock()
-	defer b.Unlock()
+	defer b.mu.Unlock()
 	batchId := util.GenerateBatchId()
 	//todo 先检查合法性
 
@@ -170,6 +174,7 @@ func (b *Batch) checkPendingBaseData(key []byte) *baseDataStruct {
 	hashkey := util.ByteHash(key)
 	//如果有就遍历
 	for _, value := range b.pendingBaseDataMap[hashkey] {
+		//预防hash冲突，一个pendingBaseData不会存在相同的key
 		if bytes.Equal(b.pendingBaseData[value].Key, key) {
 			return b.pendingBaseData[value]
 		}
@@ -189,7 +194,6 @@ func (b *Batch) appendPendingBaseData(key []byte, dataStruct *baseDataStruct) {
 }
 
 // Rollback 回滚，用于给db的put，delete的，作用是清空pendingWrite
-// todo 可能db会涉及同时拥有多个batch，先观望
 func (b *Batch) Rollback() error {
 	defer b.Lock()
 	if b.readOnly {
@@ -215,4 +219,17 @@ func (b *Batch) Rollback() error {
 		delete(b.pendingBaseDataMap, key)
 	}
 	return nil
+}
+
+func (b *Batch) reset() {
+	b.db = nil
+	b.pendingBaseData = b.pendingBaseData[:0]
+	b.pendingBaseDataMap = nil
+	b.committed = false
+	b.rollback = false
+	// put all buffers back to the pool
+	for _, buf := range b.buffers {
+		bytebufferpool.Put(buf)
+	}
+	b.buffers = b.buffers[:0]
 }
