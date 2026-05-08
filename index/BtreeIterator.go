@@ -1,8 +1,6 @@
 package index
 
 import (
-	"bytes"
-
 	"github.com/google/btree"
 	"github.com/rosedblabs/wal"
 )
@@ -72,7 +70,10 @@ func (b *BtreeIterator) Next() {
 		b.tree.DescendLessOrEqual(b.current, func(item btree.Item) bool {
 			//DescendLessOrEqual是从[current,first]的顺序的,包括current
 			// 所以current == key的时候说明还没动，直接下一个
-			if bytes.Equal(item.(*BTreeItem).key, b.current.key) {
+			// 不用bytes.Equal(item.(*BTreeItem).key, b.current.key)
+			// 是因为可能item的key变成了any，不过意义不大。变成any整个都得重写
+			// 不差这个迭代器，但总归比硬编码好一点
+			if !b.current.Less(item) {
 				return true
 			}
 			b.valid = true
@@ -84,7 +85,7 @@ func (b *BtreeIterator) Next() {
 		b.tree.AscendGreaterOrEqual(b.current, func(item btree.Item) bool {
 			//AscendGreaterOrEqual[current,end]的顺序的,包括current
 			// 所以current == key的时候说明还没动，直接下一个
-			if bytes.Equal(item.(*BTreeItem).key, b.current.key) {
+			if !b.current.Less(item) {
 				return true
 			}
 			b.valid = true
