@@ -28,7 +28,7 @@ func TestBatch(t *testing.T) {
 		dataFiles: dataFiles,
 		index:     index.NewIndexer(),
 		mu:        sync.RWMutex{},
-		recordPool: sync.Pool{New: func() any {
+		baseDataStructPool: sync.Pool{New: func() any {
 			return &baseDataStruct{}
 		}},
 	}

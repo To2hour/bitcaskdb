@@ -29,13 +29,8 @@ type baseDataStruct struct {
 	Expire  int64
 }
 
-// type batchId expire keySize valueSize
-//
-//	1  +  10  +   10   +   10   +    10  = 41
-const maxBaseDataHeaderSize = 1 + binary.MaxVarintLen64*4
-
 // 最基本的数据写入加密 给commit用
-func encodeBaseDataStruct(buf *bytebufferpool.ByteBuffer, data *baseDataStruct) (res []byte) {
+func encodeBaseDataStruct(buf *bytebufferpool.ByteBuffer, header []byte, data *baseDataStruct) (res []byte) {
 	// 这里buf是bytebufferpool的缓冲池，避免频繁make []byte
 	// 注意：bytebufferpool.Get() 拿到的 buf.Bytes() 初始长度可能为0，不能直接下标写。
 	if buf == nil {
@@ -45,7 +40,6 @@ func encodeBaseDataStruct(buf *bytebufferpool.ByteBuffer, data *baseDataStruct) 
 	buf.Reset()
 
 	//0号位置是type
-	var header [maxBaseDataHeaderSize]byte
 	header[0] = data.Type
 	index := 1
 	//1号是id
