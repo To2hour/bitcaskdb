@@ -2,8 +2,10 @@ package bitcaskdb
 
 import (
 	"bitcaskdb/index"
+	"bitcaskdb/util"
 	"encoding/binary"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -33,14 +35,14 @@ type DB struct {
 	mergeRunning uint32 // indicate if the database is merging
 
 	//一个db可以同时获取多个batch，然后每个batch依然可以并发
-	//所以针对commit，rollback操作需要获取db的mu锁，get，put这种获取batch自己的锁就行
+	//所以针对commit，rollback操作需要获取db的mu锁，get，Put 这种获取batch自己的锁就行
 	batchPool sync.Pool
 	mu        sync.RWMutex
 	//在batch的put的中，装最基础数据,同样是避免频繁make
 	baseDataStructPool sync.Pool
 
 	// 一个常驻的切片，用于在baseData加密中提供一个容器，避免频繁make
-	// 不放batch里是因为加密仅仅在commit的时候会用到，而commit的时候加锁了
+	// 不放batch里是因为加密仅仅在 Commit 的时候会用到，而commit的时候加锁了
 	encodeHeader []byte
 	//watchCh          chan *Event // user consume channel for watch events
 	//watcher          *Watcher
@@ -75,7 +77,7 @@ func Open(option *Options) (*DB, error) {
 			return nil, err
 		}
 	}
-	//todo open的流程：
+	// open的流程：
 	// 初始化fileLock锁(在数据目录下新建一个叫flock的文件就行)并尝试获取，失败说明有人在用直接报错
 	fileLock := flock.New(filepath.Join(option.DirPath, fileLockName))
 	lockResult, err := fileLock.TryLock()
@@ -101,17 +103,18 @@ func Open(option *Options) (*DB, error) {
 	}
 
 	// 加载索引
-	//todo 我的思路是：把indexer用同样的wal存起来。第一个val放编号(我认为可以直接用当前的activeSegment)
-	// 然后从wal加载进来后，根据编号去加载后面的
-	// 不过首先得做到遍历indexer
-	// 所以下午我需要把indexer的Iterator弄了
+	err = db.loadIndexFromWal()
+	if err != nil {
+		return nil, err
+	}
 
 	// 解析cron表达式并创建定时任务
 
 	return db, nil
 }
 
-// Close todo 把各种数据结构清空。文件句柄还回去,锁释放
+// Close todo 把各种数据结构清空。文件句柄还回去,锁释放,把indexer的数据写回到文件里
+// 还是合并的时候把indexer写里面?
 func (db *DB) Close() {
 
 }
@@ -203,4 +206,59 @@ func (db *DB) NewBatch() *Batch {
 		committed: false,
 	}
 	return b
+}
+
+// open的时候从wal中加载索引
+func (db *DB) loadIndexFromWal() error {
+	//读取优化，线程不安全
+	db.dataFiles.SetIsStartupTraversal(true)
+	defer db.dataFiles.SetIsStartupTraversal(false)
+	//todo 先不考虑多线程还是什么，先把基础框架搭起来
+	newReader := db.dataFiles.NewReader()
+	//这里得定义一个新的数据接口，用来存放val和position
+	//其实简单起见是可以直接存dataStruct和position的
+	// 但dataStruct的value太大了，如果map里存了指针会导致gc不掉，相当于把所有db的数据都加载到内存了
+	type tempIndex struct {
+		key      []byte
+		dataType baseStructType
+		position *wal.ChunkPosition
+	}
+	baseDataStructMap := make(map[uint64][]*tempIndex)
+	for {
+		val, position, err := newReader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		dataStruct := decodeBaseDataStruct(val)
+		if dataStruct == nil {
+			return errors.New("理论上不会发生的错误")
+		}
+		//检查是不是完成,如果完成就直接解密,然后如果这一批batchId
+		//没有Finished的数据，就干脆不会进来
+		if dataStruct.Type == Finished {
+			//在commit的时候，Finished的数据的Key就是batchId
+			batchId := util.DecodeBatchId(dataStruct.Key)
+			dataStructs := baseDataStructMap[uint64(batchId)]
+			for _, data := range dataStructs {
+				if data.dataType == Normal {
+					db.index.Put(data.key, data.position)
+				} else if data.dataType == Deleted {
+					db.index.Delete(data.key)
+				}
+			}
+			//用完的就删掉，避免一直占用内存
+			//那些坏数据就没办法，只能让他占用了
+			delete(baseDataStructMap, uint64(batchId))
+		} else {
+			baseDataStructMap[dataStruct.BatchId] = append(baseDataStructMap[dataStruct.BatchId], &tempIndex{
+				key:      dataStruct.Key,
+				dataType: dataStruct.Type,
+				position: position,
+			})
+		}
+	}
+	return nil
 }

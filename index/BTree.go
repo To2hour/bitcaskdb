@@ -51,8 +51,8 @@ func (bit *BTreeIndexer) Get(key []byte) *wal.ChunkPosition {
 }
 
 func (bit *BTreeIndexer) Delete(key []byte) *wal.ChunkPosition {
-	bit.mu.RLock()
-	defer bit.mu.RUnlock()
+	bit.mu.Lock()
+	defer bit.mu.Unlock()
 	value := bit.tree.Delete(&BTreeItem{
 		key: key,
 	})
@@ -73,7 +73,7 @@ func (bit *BTreeIndexer) Iterator(reverse bool) IndexerIterator {
 	return &BtreeIterator{
 		current: current,
 		reverse: reverse,
-		valid:   false,
+		valid:   true,
 		tree:    bit.tree.Clone(),
 	}
 }

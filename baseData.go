@@ -6,12 +6,12 @@ import (
 	"github.com/valyala/bytebufferpool"
 )
 
-// LogRecordType is the type of the log record.
-type LogRecordType = byte
+// baseStructType is the type of the log record.
+type baseStructType = byte
 
 const (
 	// Normal baseData正常
-	Normal LogRecordType = iota
+	Normal baseStructType = iota
 	// Deleted baseData删除
 	Deleted
 	// Finished baseData结束
@@ -24,7 +24,7 @@ type baseDataStruct struct {
 	//	keySize varInt
 	Value []byte
 	//	valueSize varInt
-	Type    LogRecordType
+	Type    baseStructType
 	BatchId uint64
 	Expire  int64
 }

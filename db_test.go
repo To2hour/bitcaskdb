@@ -48,3 +48,19 @@ func TestDbTest(t *testing.T) {
 	close(ch)
 	fmt.Println(len(res))
 }
+func TestOpen(t *testing.T) {
+	db, _ := Open(DbDefaultOptions)
+	iterator := db.index.Iterator(false)
+	for {
+		if iterator.Valid() {
+			fmt.Print(string(iterator.Key()), "-->")
+			val, _ := db.dataFiles.Read(iterator.Value())
+			dataStruct := decodeBaseDataStruct(val)
+			fmt.Println(string(dataStruct.Value))
+		} else {
+			break
+		}
+		iterator.Next()
+	}
+	iterator.Close()
+}

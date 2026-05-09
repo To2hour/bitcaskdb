@@ -11,3 +11,7 @@ func init() {
 func GenerateBatchId() snowflake.ID {
 	return node.Generate()
 }
+func DecodeBatchId(key []byte) snowflake.ID {
+	bytes, _ := snowflake.ParseBytes(key)
+	return bytes
+}

@@ -15,7 +15,7 @@ type Indexer interface {
 	//	Delete 如果没有返回nil。否则返回老的v
 	Delete(key []byte) *wal.ChunkPosition
 
-	// Iterator todo 迭代器晚点再弄，这个复杂
+	// Iterator 迭代器，用来遍历树
 	Iterator(reverse bool) IndexerIterator
 
 	Size() int
