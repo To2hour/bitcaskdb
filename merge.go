@@ -36,9 +36,38 @@ func (db *DB) merge() error {
 		return err
 	}
 	db.mu.Lock()
-	//我觉得下一步就是把for 创建的文件，直接rename改
+	defer db.mu.Unlock()
+	//把当前的data给关闭掉
+	if err := db.closeFiles(); err != nil {
+		return err
+	}
+	//直接把现在db下的data文件替换成mergeDB的data文件，直接rename改
+	//替换原数据文件
+	err := ReplaceOriginalFile(db.options.DirPath)
+	if err != nil {
+		return err
+	}
 	//然后重新加载索引
 	panic("wait implement")
+}
+
+func ReplaceOriginalFile(path string) error {
+	mergePath := mergeDirPath(path)
+	//不存在就直接返回
+	if _, err := os.Stat(mergePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	//合并完后就没用了，直接删了就行
+	defer func() {
+		_ = os.RemoveAll(mergePath)
+	}()
+	//ReplaceFile := func() {
+	//
+	//}
+	panic("")
 }
 
 // DoMerge 读取老的seg并在新目录创建新的data文件
@@ -111,6 +140,22 @@ func (db *DB) DoMerge() error {
 			}
 		}
 	}
+	//数据都写进datafile和hintFile了。然后我们需要一个mergeFile
+	//用来标识这次merge完成了。如果没这个文件我们就得重新merge
+	mergeFinish, err := wal.Open(wal.Options{
+		DirPath:        mergeDB.options.DirPath,
+		SegmentSize:    GB,
+		SegmentFileExt: mergeFinNameSuffix,
+		Sync:           false,
+		BytesPerSync:   0,
+	})
+	defer func() {
+		_ = mergeFinish.Close()
+	}()
+	_, err = mergeFinish.Write(encodeMergeFinish(preActiveSegmentID))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 func positionEquals(a, b *wal.ChunkPosition) bool {
@@ -126,7 +171,7 @@ func (db *DB) newMergeDB() (*DB, error) {
 		return nil, err
 	}
 	mergeOptions := db.options
-	mergeOptions.DirPath = path
+	mergeOptions.DirPath = mergeDirPath(path)
 	//创建新的临时文件目录
 	mergeDB, err := Open(mergeOptions)
 	if err != nil {
@@ -150,6 +195,19 @@ func mergeDirPath(dirPath string) string {
 	dir := filepath.Dir(filepath.Clean(dirPath))
 	base := filepath.Base(dirPath)
 	return filepath.Join(dir, base+mergeDirSuffixName)
+}
+func (db *DB) closeFiles() error {
+	// close wal
+	if err := db.dataFiles.Close(); err != nil {
+		return err
+	}
+	// close hint file if exists
+	if db.hintFile != nil {
+		if err := db.hintFile.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 //todo 到时候写完merge，写一个基于lru的内存淘汰机制，让indexer别保存全量索引

@@ -2,6 +2,7 @@ package bitcaskdb
 
 import (
 	"encoding/binary"
+	"os"
 
 	"github.com/rosedblabs/wal"
 	"github.com/valyala/bytebufferpool"
@@ -156,4 +157,30 @@ func decodeHintRecord(buf []byte) ([]byte, *wal.ChunkPosition) {
 		ChunkOffset: int64(chunkOffset),
 		ChunkSize:   uint32(chunkSize),
 	}
+}
+
+// merge数据加密，这个本质只存了1个merge时的最后一个seg
+func encodeMergeFinish(segmentId wal.SegmentID) []byte {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, segmentId)
+	return buf
+}
+func getMergeFinSegmentId(mergePath string) (wal.SegmentID, error) {
+	// 检查在不在
+	mergeFinFile, err := os.Open(wal.SegmentFileName(mergePath, mergeFinNameSuffix, 1))
+	if err != nil {
+		//不在直接返回
+		return 0, nil
+	}
+	defer func() {
+		_ = mergeFinFile.Close()
+	}()
+
+	// encodeMergeFinish 加密的时候的SegmentID只有4字节，然后前面7字节是wal的头
+	mergeFinBuf := make([]byte, 4)
+	if _, err := mergeFinFile.ReadAt(mergeFinBuf, 7); err != nil {
+		return 0, err
+	}
+	mergeFinSegmentId := binary.LittleEndian.Uint32(mergeFinBuf)
+	return mergeFinSegmentId, nil
 }
