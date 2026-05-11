@@ -12,4 +12,5 @@ var (
 	ErrDBClosed        = errors.New("the database is closed")
 	ErrMergeRunning    = errors.New("the merge operation is running")
 	ErrWatchDisabled   = errors.New("the watch is disabled")
+	ErrDataFileNil     = errors.New("the dataFile is nil")
 )

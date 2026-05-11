@@ -31,8 +31,9 @@ type DB struct {
 	//这个锁是用来保证该目录下的数据库只能被一个db所持有
 	fileLock *flock.Flock
 	//数据库在关闭后就不能用了，但没办法组织写代码的时候接着硬用，只能多加1层close的校验了
-	closed       bool
-	mergeRunning uint32 // indicate if the database is merging
+	closed bool
+	//检查是否在merge
+	mergeRunning uint32
 
 	//一个db可以同时获取多个batch，然后每个batch依然可以并发
 	//所以针对commit，rollback操作需要获取db的mu锁，get，Put 这种获取batch自己的锁就行

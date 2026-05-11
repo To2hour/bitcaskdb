@@ -3,6 +3,7 @@ package bitcaskdb
 import (
 	"encoding/binary"
 
+	"github.com/rosedblabs/wal"
 	"github.com/valyala/bytebufferpool"
 )
 
@@ -106,5 +107,53 @@ func decodeBaseDataStruct(data []byte) *baseDataStruct {
 		Type:    data[0],
 		BatchId: uint64(BatchId),
 		Expire:  Expire,
+	}
+}
+
+// 加密hint文件
+func encodeHintRecord(key []byte, pos *wal.ChunkPosition) []byte {
+	// SegmentId BlockNumber ChunkOffset ChunkSize
+	//    5          5           10          5      =    25
+	// 这里是段数据,这个加密很少用，buf直接make就行
+	buf := make([]byte, 25)
+	idx := 0
+
+	// SegmentId
+	idx += binary.PutUvarint(buf[idx:], uint64(pos.SegmentId))
+	// BlockNumber
+	idx += binary.PutUvarint(buf[idx:], uint64(pos.BlockNumber))
+	// ChunkOffset
+	idx += binary.PutUvarint(buf[idx:], uint64(pos.ChunkOffset))
+	// ChunkSize
+	idx += binary.PutUvarint(buf[idx:], uint64(pos.ChunkSize))
+
+	// key
+	result := make([]byte, idx+len(key))
+	copy(result, buf[:idx])
+	copy(result[idx:], key)
+	return result
+}
+
+func decodeHintRecord(buf []byte) ([]byte, *wal.ChunkPosition) {
+	idx := 0
+	// SegmentId
+	segmentId, n := binary.Uvarint(buf[idx:])
+	idx += n
+	// BlockNumber
+	blockNumber, n := binary.Uvarint(buf[idx:])
+	idx += n
+	// ChunkOffset
+	chunkOffset, n := binary.Uvarint(buf[idx:])
+	idx += n
+	// ChunkSize
+	chunkSize, n := binary.Uvarint(buf[idx:])
+	idx += n
+	// Key
+	key := buf[idx:]
+	return key, &wal.ChunkPosition{
+		SegmentId:   wal.SegmentID(segmentId),
+		BlockNumber: uint32(blockNumber),
+		ChunkOffset: int64(chunkOffset),
+		ChunkSize:   uint32(chunkSize),
 	}
 }

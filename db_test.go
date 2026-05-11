@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestDbTest(t *testing.T) {
@@ -49,18 +50,31 @@ func TestDbTest(t *testing.T) {
 	fmt.Println(len(res))
 }
 func TestOpen(t *testing.T) {
+	start := time.Now()
+	//没hit辅助，打开耗时 Open 函数耗时: 64.8956ms
+	//没hit辅助，打开耗时 Open 函数耗时: 65.9413ms
+	//没hit辅助，打开耗时 Open 函数耗时: 64.8681ms
+	//没hit辅助，打开耗时 Open 函数耗时: 67.4314ms
+	//没hit辅助，打开耗时 Open 函数耗时: 64.8956ms
 	db, _ := Open(DbDefaultOptions)
-	iterator := db.index.Iterator(false)
-	for {
-		if iterator.Valid() {
-			fmt.Print(string(iterator.Key()), "-->")
-			val, _ := db.dataFiles.Read(iterator.Value())
-			dataStruct := decodeBaseDataStruct(val)
-			fmt.Println(string(dataStruct.Value))
-		} else {
-			break
-		}
-		iterator.Next()
-	}
-	iterator.Close()
+	elapsed := time.Since(start)
+	t.Logf("Open 函数耗时: %s\n", elapsed) // 或者 fmt.Printf
+	size := db.index.Size()
+	t.Logf("总数据量 : %d", size) // 或者 fmt.Printf
+	//    db_test.go:61: Open 函数耗时: 63.9886ms
+	//    db_test.go:63: 总数据量 : 10000
+	//    db_test.go:61: Open 函数耗时: 65.8938ms
+	//    db_test.go:63: 总数据量 : 10000
+	//for {
+	//	if iterator.Valid() {
+	//		fmt.Print(string(iterator.Key()), "-->")
+	//		val, _ := db.dataFiles.Read(iterator.Value())
+	//		dataStruct := decodeBaseDataStruct(val)
+	//		fmt.Println(string(dataStruct.Value))
+	//	} else {
+	//		break
+	//	}
+	//	iterator.Next()
+	//}
+	//iterator.Close()
 }
