@@ -1,7 +1,9 @@
 package bitcaskdb
 
 import (
+	"bitcaskdb/index"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -19,16 +21,16 @@ const (
 )
 
 // merge 把wal中那些老的seg段合并成更少个
-// todo思路是什么？
 // 从wal中new reader。当遍历到的seg == active的时候就停止
 // 然后把reader读到的数据解码，类似loadIndex后
 // put到索引里，然后索引猛猛put后，检测下大小，差不多
 // 和seg设定的大小一样了就commit进去，不过要不然改commit，要不然写个新的commit
 // 问题是怎么覆盖原文件？然后怎么替换？
 
-// todo roseDb思路：创造一个临时文件夹，把目前active的seg往后一位，然后read除了新的之外所有的seg
+//	roseDb思路：创造一个临时文件夹，把目前active的seg往后一位，然后read除了新的之外所有的seg
+//
 // 然后根据delete，过期时间等标记只把有用的数据放到新的seg中
-// 然后用rename替换掉老的seg(遍历新的seg然后直接改名过去替换即可todo（需要注意老的没用的seg得干掉）)
+// 然后用rename替换掉老的seg(遍历新的seg然后直接改名过去替换即可)
 // 然后替换结束后重新加载索引，就ok了
 func (db *DB) merge() error {
 	//不管这么多，先doMerge把文件创建出来
@@ -47,8 +49,18 @@ func (db *DB) merge() error {
 	if err != nil {
 		return err
 	}
+	//替换好了，重新打开
+	dataWal, err := openDataWal(db.options)
+	if err != nil {
+		return err
+	}
+	db.dataFiles = dataWal
 	//然后重新加载索引
-	panic("wait implement")
+	db.index = index.NewIndexer()
+	if err = db.loadIndex(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ReplaceOriginalFile(path string) error {
@@ -64,10 +76,55 @@ func ReplaceOriginalFile(path string) error {
 	defer func() {
 		_ = os.RemoveAll(mergePath)
 	}()
-	//ReplaceFile := func() {
-	//
-	//}
-	panic("")
+	// force:如果文件的大小是0，为true的时候也创建，否则不创建
+	// 一个优化手段
+	ReplaceFile := func(suffix string, segId uint32, force bool) {
+		//现在merge的位置：
+		mergeFile := wal.SegmentFileName(mergePath, suffix, segId)
+		stat, err := os.Stat(mergeFile)
+		if os.IsNotExist(err) {
+			return
+		}
+		if err != nil {
+			panic(fmt.Sprintf("loadMergeFiles: failed to get src file stat %v", err))
+		}
+		if !force && stat.Size() == 0 {
+			return
+		}
+		//merge文件目标的位置
+		srcFile := wal.SegmentFileName(path, suffix, segId)
+		//把老的干掉换成merge里的
+		_ = os.Rename(mergeFile, srcFile)
+	}
+	//读取doMerge时生成的mergeFinNameSuffix，里面记录了最后一个data的索引
+	finSegmentId, err := getMergeFinSegmentId(mergePath)
+	if finSegmentId == 0 {
+		return errors.New("the last merge was interrupted by an exception, please merge again")
+	}
+	if err != nil {
+		return err
+	}
+	// 先删掉旧的索引标识文件
+	// 只有删除了这两个，即便后面 Rename 过程中断了，
+	// 重启时 loadIndexFromHintFile 也会因为找不到 fin 文件而返回 nil，
+	// 从而迫使数据库执行安全的全量数据扫描。
+	_ = os.Remove(wal.SegmentFileName(path, mergeFinNameSuffix, 1))
+	_ = os.Remove(wal.SegmentFileName(path, hintFileNameSuffix, 1))
+	for i := uint32(1); i <= finSegmentId; i++ {
+		//把老的删掉，因为虽然rename会把老的干掉，但merge的seg如果比old的更少的话
+		//就会遗留old
+		oldFile := wal.SegmentFileName(path, dataFileNameSuffix, i)
+		if _, err = os.Stat(oldFile); err == nil {
+			if err = os.Remove(oldFile); err != nil {
+				return err
+			}
+		}
+		ReplaceFile(dataFileNameSuffix, i, false)
+	}
+	//把hint和merge给移过去
+	ReplaceFile(hintFileNameSuffix, 1, true)
+	ReplaceFile(mergeFinNameSuffix, 1, true)
+	return nil
 }
 
 // DoMerge 读取老的seg并在新目录创建新的data文件
@@ -100,6 +157,7 @@ func (db *DB) DoMerge() error {
 	//把锁放了，现在写的都在新的seg里，接下来只操作老的了
 	db.mu.Unlock()
 	//然后找个新文件夹，打开merge的db
+	//newMergeDB会把merge文件夹下的所有东西删了，避免上一次影响
 	mergeDB, err := db.newMergeDB()
 	if err != nil {
 		return err
@@ -125,6 +183,8 @@ func (db *DB) DoMerge() error {
 			return errors.New("正常不会出现的错误")
 		}
 		//如果解码数据的pos == index的pos，说明他正在用，保留，否则丢弃
+		//因为delete后，index已经把这个删掉了，所以理论上
+		//正确维护的index里面一定没有delete，所以没必要保留文件里的delete
 		if dataStruct.Type == Normal && (dataStruct.Expire == 0 || dataStruct.Expire > now) {
 			if positionEquals(db.index.Get(dataStruct.Key), position) {
 				//把有用的数据写进来
@@ -164,14 +224,14 @@ func positionEquals(a, b *wal.ChunkPosition) bool {
 		a.ChunkOffset == b.ChunkOffset
 }
 func (db *DB) newMergeDB() (*DB, error) {
-	//获取当前seg所在的目录
-	path := db.options.DirPath
-	//把老的删了
-	if err := os.RemoveAll(path); err != nil {
+	//计算出merge文件夹的位置
+	mergePath := mergeDirPath(db.options.DirPath)
+	//把老的merge文件夹清空
+	if err := os.RemoveAll(mergePath); err != nil {
 		return nil, err
 	}
 	mergeOptions := db.options
-	mergeOptions.DirPath = mergeDirPath(path)
+	mergeOptions.DirPath = mergePath
 	//创建新的临时文件目录
 	mergeDB, err := Open(mergeOptions)
 	if err != nil {

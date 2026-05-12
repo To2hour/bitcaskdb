@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -18,7 +19,7 @@ import (
 type DB struct {
 	// data files are a sets of segment files in WAL.
 	dataFiles *wal.WAL
-	// hint file is used to store the key and the position for fast startup.
+	// newMergeDB 在newMergeDB中初始化并赋值
 	hintFile *wal.WAL
 
 	//初始化的选项
@@ -104,7 +105,7 @@ func Open(option *Options) (*DB, error) {
 	}
 
 	// 加载索引
-	err = db.loadIndexFromWal()
+	err = db.loadIndex()
 	if err != nil {
 		return nil, err
 	}
@@ -211,10 +212,14 @@ func (db *DB) NewBatch() *Batch {
 
 // open的时候从wal中加载索引
 func (db *DB) loadIndexFromWal() error {
+	//从merge的finsh文件中获取hint的范围
+	finSegmentId, err := getMergeFinSegmentId(db.options.DirPath)
+	if err != nil {
+		return err
+	}
 	//读取优化，线程不安全
 	db.dataFiles.SetIsStartupTraversal(true)
 	defer db.dataFiles.SetIsStartupTraversal(false)
-	//todo 先不考虑多线程还是什么，先把基础框架搭起来
 	newReader := db.dataFiles.NewReader()
 	//这里得定义一个新的数据接口，用来存放val和position
 	//其实简单起见是可以直接存dataStruct和position的
@@ -226,6 +231,11 @@ func (db *DB) loadIndexFromWal() error {
 	}
 	baseDataStructMap := make(map[uint64][]*tempIndex)
 	for {
+		//finSegmentId如果是0就不会进if
+		if newReader.CurrentSegmentId() <= finSegmentId {
+			newReader.SkipCurrentSegment()
+			continue
+		}
 		val, position, err := newReader.Next()
 		if err != nil {
 			if err == io.EOF {
@@ -260,6 +270,52 @@ func (db *DB) loadIndexFromWal() error {
 				position: position,
 			})
 		}
+	}
+	return nil
+}
+
+// merge会在目录下产生hint文件，从hint文件中加载一部分索引
+// loadIndexFromHint 可能会从open的时候用到，而hintFile仅仅
+// 会在newMergeDB中赋值，所以用wal打开
+func (db *DB) loadIndexFromHint() error {
+	//检查merge合法性，如果merge不合法，说明hint也不对,干脆就不要hint
+	finSegmentId, err := getMergeFinSegmentId(db.options.DirPath)
+	if finSegmentId == 0 || err != nil {
+		return nil
+	}
+	hintFile, err := wal.Open(wal.Options{
+		DirPath:        db.options.DirPath,
+		SegmentSize:    math.MaxInt64,
+		SegmentFileExt: hintFileNameSuffix,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = hintFile.Close()
+	}()
+	reader := hintFile.NewReader()
+	for {
+		chunk, _, err := reader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		//hint里只有正常的normal数据
+		key, position := decodeHintRecord(chunk)
+		db.index.Put(key, position)
+	}
+	return nil
+}
+
+func (db *DB) loadIndex() error {
+	if err := db.loadIndexFromHint(); err != nil {
+		return err
+	}
+	if err := db.loadIndexFromWal(); err != nil {
+		return err
 	}
 	return nil
 }

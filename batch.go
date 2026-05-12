@@ -22,7 +22,6 @@ type Batch struct {
 	rollback bool
 	//这个是优化手段，在commit的时候需要加密，加密需要用到一个缓冲的[]byte，所以用池管理下避免频繁make
 	buffers []*bytebufferpool.ByteBuffer
-	//todo是否只读(有必要加吗？先看看)
 	//有的，一个db可以有很多batch，commit，rollback操作只能有写batch操作，
 	// 只读的batch可以仅仅获取db的r锁，而写的batch必须获取写锁才行
 	//然后同一个batch依然可能由多个协程操作，所以batch本身也需要锁
