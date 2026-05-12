@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/robfig/cron/v3"
@@ -115,10 +117,23 @@ func Open(option *Options) (*DB, error) {
 	return db, nil
 }
 
-// Close todo 把各种数据结构清空。文件句柄还回去,锁释放,把indexer的数据写回到文件里
-// 还是合并的时候把indexer写里面?
-func (db *DB) Close() {
+// Close 把各种数据结构清空。文件句柄还回去,锁释放,把indexer的数据写回到文件里
+func (db *DB) Close() error {
+	// 等待合并完成
+	for atomic.LoadUint32(&db.mergeRunning) == 1 {
+		time.Sleep(time.Millisecond * 100)
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.closeFiles(); err != nil {
+		return err
+	}
 
+	if err := db.fileLock.Unlock(); err != nil {
+		return err
+	}
+	db.closed = true
+	return nil
 }
 
 // Put todo 暂时先byte，未来改成any
@@ -229,6 +244,7 @@ func (db *DB) loadIndexFromWal() error {
 		dataType baseStructType
 		position *wal.ChunkPosition
 	}
+	now := time.Now().UnixNano()
 	baseDataStructMap := make(map[uint64][]*tempIndex)
 	for {
 		//finSegmentId如果是0就不会进if
@@ -263,7 +279,15 @@ func (db *DB) loadIndexFromWal() error {
 			//用完的就删掉，避免一直占用内存
 			//那些坏数据就没办法，只能让他占用了
 			delete(baseDataStructMap, uint64(batchId))
+		} else if dataStruct.Type == Normal && dataStruct.BatchId == mergeFinishedBatchID {
+			//这里是防御性检查，理论上Type永远是normal
+			db.index.Put(dataStruct.Key, position)
 		} else {
+			//只有没过期的才会加进去
+			if dataStruct.IsExpired(now) {
+				db.index.Delete(dataStruct.Key)
+				continue
+			}
 			baseDataStructMap[dataStruct.BatchId] = append(baseDataStructMap[dataStruct.BatchId], &tempIndex{
 				key:      dataStruct.Key,
 				dataType: dataStruct.Type,

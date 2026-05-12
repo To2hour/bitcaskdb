@@ -184,3 +184,6 @@ func getMergeFinSegmentId(mergePath string) (wal.SegmentID, error) {
 	mergeFinSegmentId := binary.LittleEndian.Uint32(mergeFinBuf)
 	return mergeFinSegmentId, nil
 }
+func (data *baseDataStruct) IsExpired(now int64) bool {
+	return data.Expire > 0 && data.Expire <= now
+}

@@ -1,62 +1,46 @@
-## 整体流程
-### 数据结构：
-1. 最外面的是000001.seg，000002.seg...
+# bitcaskdb
 
-2. 每一个seg里面都分block块。每一个block块默认32k。对wal而言，最基础的数据是存放在block中的
+基于 [Bitcask](https://riak.com/assets/bitcask-a-log-structured-hash-table-for-fast-key-value-data.pdf) 论文实现的 KV 存储引擎，底层使用 [rosedblabs/wal](https://github.com/rosedblabs/wal) 作为 WAL 实现。
+
+## 快速开始
+
+```go
+db, err := bitcaskdb.Open(&bitcaskdb.Options{
+    DirPath:     "./mydb",
+    SegmentSize: bitcaskdb.GB,
+})
+if err != nil {
+    panic(err)
+}
+defer db.Close()
+
+// 写入
+_ = db.Put([]byte("hello"), []byte("world"))
+
+// 读取
+val, _ := db.Get([]byte("hello"))
+fmt.Println(string(val)) // world
+
+// 删除
+_ = db.Delete([]byte("hello"))
+```
+
+## 架构概述
+
+数据分三层组织：
 
 ```
-       +-----+-------------+--+----+----------+------+-- ... ----+
- File  | r0  |      r1     |P | r2 |    r3    |  r4  |           |
-       +-----+-------------+--+----+----------+------+-- ... ----+
-       |<---- BlockSize ----->|<---- BlockSize ----->|
-
-  rn = variable size records
-  P = Padding
-  BlockSize = 32KB
+数据库目录
+├── 000001.SEG, 000002.SEG ...  ← WAL 数据文件（seg）
+├── 000001.HINT                 ← merge 后的索引快照
+└── 000001.MERGEFIN             ← merge 完成标记
 ```
-3. wal中最基础的数据结构(**Chunk**)如下图。crc是校验和，length的payload的长度，type是类型
-如果某个数据过大，一个block放不下，type用于区分头尾。数据库的数据存放在payload中
-```
-+----------+-------------+-----------+--- ... ---+
-| CRC (4B) | Length (2B) | Type (1B) |  Payload  |
-+----------+-------------+-----------+--- ... ---+
 
-CRC = 32-bit hash computed over the payload using CRC
-Length = Length of the payload data
-Type = Type of record
-       (FullType, FirstType, MiddleType, LastType)
-       The type is used to group a bunch of records together to represent
-       blocks that are larger than BlockSize
-Payload = Byte stream as long as specified by the payload size
-```
-4. 对数据库而言，payload中存放的就是db中的数据了，在put的时候，每一条数据都是一个**Chunk**的payload，每一个数据都会被single record包裹，
-```
- +-------------+-------------+-------------+--------------+---------------+---------+--------------+
- |    type     |  batch id   |   key size  |   value size |     expire    |  key    |      value   |
- +-------------+-------------+-------------+--------------+---------------+--------+--------------+
+- **WAL**：所有写入追加到 seg 文件，seg 内部按 32KB Block 分块，每条数据包裹为 Chunk
+- **Index**：内存 B-tree，Key → WAL 坐标（segId + blockNumber + offset）
+- **Batch**：写操作先缓存到 pendingWrite，commit 时一次性刷盘并更新 index
+- **Merge**：压缩历史 seg，去除无效数据，生成 hint 文件加速重启时的索引恢复
 
-	1 byte	      varint(max 10) varint(max 5)  varint(max 5) varint(max 10)  varint      varint
+详细设计见 [docs/architecture.md](docs/architecture.md)。
 
-```
-## 整体的逻辑流程：
-1. 用户先打开数据库，调用open
-	1. open会调用wal的open，获取最新的seg的句柄
-2. db层维护了batchPool，一个db可以操控多个batch，batch分成只读和写，在db层调用put的时候都需要获取下db的读写锁mu。读batch获取读锁。db获取batch的时候需要给该batch绑定db的mu锁
-	1. put会调用batch的put和commit
-		1. batch是一个批处理的工具，
-		2. batch.put: 把传入的kv直接存在batch结构的一个list：pendingWrite中,没了，加一个判断，如果list中有这个数据就更新
-		3. batch.commit:遍历pendingWrite，把数据解析成payload需要的格式并调用wal的PendingWrites加进去。然后加一条结束的数据标识用来保证原子性。最后调用wal的writeAll一次写进去，并把返回的坐标存起来，这里是存到了**indexer**中。commit是只有写batch才能操控
-3. 调用get
-	1. get会调用batch的get
-		1. batch的get先检查list里有没有，有就直接返回
-		2. 如果没有就得根据key去indexer获取坐标，然后调用wal的read获取数据
-## 复刻流程
-
-1. 先看wal的接口以及实现（解析在xxx.md里）
-	1. wal的write：如果当前block已经连Chunk的header都放不下了，就补0至下一个block。如果放得下头但放不下整个数据，就会拆分存到多个block中，然后返回这个数据的最前面的block的坐标（segId,blockSize,blockOffset，ChunkSize）
-	2. wal的read：根据这3个segId,blockSize,blockOffset读取出数据并拼接返回payload
-	3. writeAll:本质就是wal有个list集合pendingWrites，平时用特定的write方法会把数据写到pendingWrites里。调用writeAll的时候一次io把整个list都写到文件里。
-2. 把batch的put，delete写了，然后写commit
-3. 写commit的时候你会发现需要一个数据结构来保存wal返回的坐标，这就是前面提到的indexer，这里选择很多，只要能做到indexer.get(key)能返回坐标的数据结构都可以，但go的话最好不要map，map一个是容易触发扩容，一个是本身go维护的map也不小。项目里用的是google的btree
-4. 把indexer给实现了。get，put，delete，size，Iterator(这个比较复杂，可以后面再弄)
-5. 回过头把batch的get，commit给写了
+从零实现的步骤见 [docs/tutorial.md](docs/tutorial.md)。

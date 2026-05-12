@@ -82,6 +82,8 @@ func ReplaceOriginalFile(path string) error {
 		//现在merge的位置：
 		mergeFile := wal.SegmentFileName(mergePath, suffix, segId)
 		stat, err := os.Stat(mergeFile)
+		//因为遍历到的是finSegmentId，所以可能出现old有这个编号但seg没有的。
+		//这种情况直接返回
 		if os.IsNotExist(err) {
 			return
 		}
@@ -186,7 +188,11 @@ func (db *DB) DoMerge() error {
 		//因为delete后，index已经把这个删掉了，所以理论上
 		//正确维护的index里面一定没有delete，所以没必要保留文件里的delete
 		if dataStruct.Type == Normal && (dataStruct.Expire == 0 || dataStruct.Expire > now) {
-			if positionEquals(db.index.Get(dataStruct.Key), position) {
+			db.mu.RLock()
+			indexPos := db.index.Get(dataStruct.Key)
+			db.mu.RUnlock()
+			if indexPos != nil && positionEquals(indexPos, position) {
+				dataStruct.BatchId = mergeFinishedBatchID
 				//把有用的数据写进来
 				write, err := mergeDB.dataFiles.Write(encodeBaseDataStruct(buf, mergeDB.encodeHeader, dataStruct))
 				if err != nil {
@@ -209,6 +215,9 @@ func (db *DB) DoMerge() error {
 		Sync:           false,
 		BytesPerSync:   0,
 	})
+	if err != nil {
+		return err
+	}
 	defer func() {
 		_ = mergeFinish.Close()
 	}()
@@ -230,15 +239,15 @@ func (db *DB) newMergeDB() (*DB, error) {
 	if err := os.RemoveAll(mergePath); err != nil {
 		return nil, err
 	}
-	mergeOptions := db.options
-	mergeOptions.DirPath = mergePath
+	mergeOptionsCopy := *db.options
+	mergeOptionsCopy.DirPath = mergePath
 	//创建新的临时文件目录
-	mergeDB, err := Open(mergeOptions)
+	mergeDB, err := Open(&mergeOptionsCopy)
 	if err != nil {
 		return nil, err
 	}
 	hintFile, err := wal.Open(wal.Options{
-		DirPath: mergeOptions.DirPath,
+		DirPath: mergeOptionsCopy.DirPath,
 		// hint文件不需要分段
 		SegmentSize:    math.MaxInt64,
 		SegmentFileExt: hintFileNameSuffix,
