@@ -26,7 +26,7 @@ import (
 )
 
 // benchValue 是每次写入使用的固定 value，128 字节模拟真实业务场景。
-var benchValue = make([]byte, 128)
+var benchValue = make([]byte, 4*1024)
 
 func init() {
 	for i := range benchValue {
@@ -182,9 +182,11 @@ func BenchmarkPutParallel(b *testing.B) {
 
 // BenchmarkGetParallel 预填充后，多协程并发随机读取。
 func BenchmarkGetParallel(b *testing.B) {
-	db, cleanup := openBenchDB(b)
-	defer cleanup()
-
+	//db, cleanup := openBenchDB(b)
+	//defer cleanup()
+	dirFix := "./example/bitcaskDB-fixed" //8775658 ns/op
+	db, _ := bitcaskdb.Open(&bitcaskdb.Options{DirPath: dirFix, SegmentSize: bitcaskdb.GB})
+	defer func() { _ = db.Close() }()
 	const seed = 10000
 	for i := 0; i < seed; i++ {
 		key := strconv.AppendInt([]byte("key-"), int64(i), 10)
@@ -254,14 +256,14 @@ func BenchmarkReopen(b *testing.B) {
 }
 
 func BenchmarkMergeReopen(b *testing.B) {
-	dir := "./example/bitcaskDB-fixed-nomerge"
+	dir := "./example/bitcaskDB-fixed-merge"
 	_ = os.MkdirAll(dir, 0766) // 如果目录不存在就创建，存在就啥也不干
 	//defer os.RemoveAll(dir)
 
 	// 一次性写入 10000 条数据
 	db, _ := bitcaskdb.Open(&bitcaskdb.Options{DirPath: dir, SegmentSize: bitcaskdb.GB})
-	for i := 0; i < 100000; i++ {
-		key := strconv.AppendInt([]byte("key-"), int64(i%3000), 10)
+	for i := 0; i < 1000000; i++ {
+		key := strconv.AppendInt([]byte("key-"), int64(i%500000), 10)
 		_ = db.Put(key, benchValue)
 	}
 
@@ -287,4 +289,18 @@ func TestName(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
+}
+func BenchmarkMerge(b *testing.B) {
+	//合并完后1.9g，打开耗时：190652 ns/op
+	dirFix := "./example/bitcaskDB-fixed" //8775658 ns/op
+	// 3.9g的文件，打开耗时：4136643900 ns/op
+	//dirNoMerge := "./example/bitcaskDB-fixed-nomerge"
+	b.ResetTimer()
+	for range b.N {
+		dbFix, err := bitcaskdb.Open(&bitcaskdb.Options{DirPath: dirFix, SegmentSize: bitcaskdb.GB})
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = dbFix.Close()
+	}
 }
