@@ -50,8 +50,9 @@ type DB struct {
 	encodeHeader []byte
 	//watchCh          chan *Event // user consume channel for watch events
 	//watcher          *Watcher
-	expiredCursorKey []byte     // the location to which DeleteExpiredKeys executes.
-	cronScheduler    *cron.Cron // cron scheduler for auto merge task
+	expiredCursorKey []byte // the location to which DeleteExpiredKeys executes.
+	//定时跑merge的
+	cronScheduler *cron.Cron
 }
 
 // type batchId expire keySize valueSize
@@ -113,7 +114,14 @@ func Open(option *Options) (*DB, error) {
 	}
 
 	// 解析cron表达式并创建定时任务
-
+	if option.AutoMergeCronExpr != "" {
+		db.cronScheduler = cron.New()
+		_, err := db.cronScheduler.AddFunc(option.AutoMergeCronExpr, func() { _ = db.Merge() })
+		if err != nil {
+			return nil, err
+		}
+		db.cronScheduler.Start()
+	}
 	return db, nil
 }
 
@@ -131,6 +139,9 @@ func (db *DB) Close() error {
 
 	if err := db.fileLock.Unlock(); err != nil {
 		return err
+	}
+	if db.cronScheduler != nil {
+		db.cronScheduler.Stop()
 	}
 	db.closed = true
 	return nil
@@ -159,6 +170,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	defer batch.reset()
 	batch.init(true, db)
 	batch.Lock()
+	defer batch.Unlock()
 	res, err := batch.Get(key)
 	if err != nil {
 		return nil, err
@@ -202,7 +214,19 @@ func checkOptions(option *Options) error {
 	if option.SegmentSize <= 0 {
 		return errors.New("seg段不能为0")
 	}
-	//todo cron晚点检查
+	//检查cron
+	IsValidCron := func(expr string) bool {
+		// cron.NewParser 创建一个解析器
+		// 分别对应: 分、时、天、月、周 (标准 5 位)
+		parser := cron.NewParser(
+			cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+		)
+		_, err := parser.Parse(expr)
+		return err == nil
+	}
+	if option.AutoMergeCronExpr != "" && !IsValidCron(option.AutoMergeCronExpr) {
+		return errors.New("cron表达式不合法！")
+	}
 	return nil
 }
 

@@ -10,7 +10,7 @@ var (
 	ErrBatchCommitted  = errors.New("the batch is committed")
 	ErrBatchRollbacked = errors.New("the batch is rollbacked")
 	ErrDBClosed        = errors.New("the database is closed")
-	ErrMergeRunning    = errors.New("the merge operation is running")
+	ErrMergeRunning    = errors.New("the Merge operation is running")
 	ErrWatchDisabled   = errors.New("the watch is disabled")
 	ErrDataFileNil     = errors.New("the dataFile is nil")
 )

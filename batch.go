@@ -156,6 +156,9 @@ func (b *Batch) Get(key []byte) ([]byte, error) {
 		return data.Value, nil
 	}
 	chunkPosition := b.db.index.Get(key)
+	if chunkPosition == nil {
+		return nil, ErrKeyNotFound
+	}
 	val, err := b.db.dataFiles.Read(chunkPosition)
 	if err != nil {
 		return nil, err
@@ -194,7 +197,7 @@ func (b *Batch) appendPendingBaseData(key []byte, dataStruct *baseDataStruct) {
 
 // Rollback 回滚，用于给db的put，delete的，作用是清空pendingWrite
 func (b *Batch) Rollback() error {
-	defer b.Lock()
+	defer b.Unlock()
 	if b.readOnly {
 		return ErrReadOnlyBatch
 	}

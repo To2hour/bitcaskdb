@@ -16,11 +16,11 @@ import (
 )
 
 const (
-	mergeDirSuffixName   = "-merge"
+	mergeDirSuffixName   = "-Merge"
 	mergeFinishedBatchID = 0
 )
 
-// merge 把wal中那些老的seg段合并成更少个
+// Merge 把wal中那些老的seg段合并成更少个
 // 从wal中new reader。当遍历到的seg == active的时候就停止
 // 然后把reader读到的数据解码，类似loadIndex后
 // put到索引里，然后索引猛猛put后，检测下大小，差不多
@@ -32,7 +32,7 @@ const (
 // 然后根据delete，过期时间等标记只把有用的数据放到新的seg中
 // 然后用rename替换掉老的seg(遍历新的seg然后直接改名过去替换即可)
 // 然后替换结束后重新加载索引，就ok了
-func (db *DB) merge() error {
+func (db *DB) Merge() error {
 	//不管这么多，先doMerge把文件创建出来
 	if err := db.DoMerge(); err != nil {
 		return err
@@ -101,7 +101,7 @@ func ReplaceOriginalFile(path string) error {
 	//读取doMerge时生成的mergeFinNameSuffix，里面记录了最后一个data的索引
 	finSegmentId, err := getMergeFinSegmentId(mergePath)
 	if finSegmentId == 0 {
-		return errors.New("the last merge was interrupted by an exception, please merge again")
+		return errors.New("the last Merge was interrupted by an exception, please Merge again")
 	}
 	if err != nil {
 		return err
