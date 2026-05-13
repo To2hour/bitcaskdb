@@ -147,7 +147,7 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// Put todo 暂时先byte，未来改成any
+// Put
 func (db *DB) Put(key, value []byte) error {
 	batch := db.batchPool.Get().(*Batch)
 	//把batch清空，否则有问题
