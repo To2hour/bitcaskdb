@@ -95,14 +95,15 @@ func (b *Batch) Delete(key []byte) error {
 func (b *Batch) Commit() error {
 	//commit完了这个batch就直接不要了，所以得把锁还了
 	defer b.Unlock()
-	if b.readOnly {
+	if b.db.closed {
+		return ErrDBClosed
+	}
+	if b.readOnly || len(b.pendingBaseData) == 0 {
 		return ErrReadOnlyBatch
 	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	batchId := util.GenerateBatchId()
-	//todo 先检查合法性
 
 	// 然后把pendingBaseData里的数据用encodeBaseDataStruct加密成byte，然后用wal.PendingWrites写进去
 	for _, baseData := range b.pendingBaseData {
@@ -143,7 +144,7 @@ func (b *Batch) Commit() error {
 		b.db.baseDataStructPool.Put(baseData)
 	}
 	b.committed = true
-	//todo 为了方便，暂时先清空pending
+	//清空pending
 	b.pendingBaseData = b.pendingBaseData[:0]
 	b.pendingBaseDataMap = nil
 	return nil

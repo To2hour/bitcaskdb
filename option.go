@@ -40,10 +40,11 @@ const (
 
 // DbDefaultOptions 给db默认用的选项
 var DbDefaultOptions = &Options{
-	DirPath:           "./example",
-	SegmentSize:       1 * GB,
-	Sync:              false,
-	AutoMergeCronExpr: "",
+	DirPath:     "./example",
+	SegmentSize: 1 * GB,
+	Sync:        false,
+	//每晚24点
+	AutoMergeCronExpr: "0 0 * * *",
 }
 
 var nameRand = rand.NewSource(time.Now().UnixNano())

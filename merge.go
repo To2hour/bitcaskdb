@@ -278,5 +278,3 @@ func (db *DB) closeFiles() error {
 	}
 	return nil
 }
-
-//todo 到时候写完merge，写一个基于lru的内存淘汰机制，让indexer别保存全量索引
