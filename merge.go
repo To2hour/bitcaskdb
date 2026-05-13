@@ -164,7 +164,9 @@ func (db *DB) DoMerge() error {
 	if err != nil {
 		return err
 	}
-	defer mergeDB.Close()
+	defer func() {
+		_ = mergeDB.Close()
+	}()
 	//迭代器只迭代到preActiveSegmentID为止
 	reader := db.dataFiles.NewReaderWithMax(preActiveSegmentID)
 	//buf,给encodeBaseDataStruct用的

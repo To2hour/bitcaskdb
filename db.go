@@ -143,6 +143,10 @@ func (db *DB) Close() error {
 	if db.cronScheduler != nil {
 		db.cronScheduler.Stop()
 	}
+	// release file lock
+	if err := db.fileLock.Unlock(); err != nil {
+		return err
+	}
 	db.closed = true
 	return nil
 }
