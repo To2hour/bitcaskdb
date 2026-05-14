@@ -40,5 +40,5 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&dirPath, "dir", "./data", "database directory path")
-	rootCmd.AddCommand(putCmd, getCmd, delCmd)
+	rootCmd.AddCommand(putCmd, getCmd, delCmd, statCmd, mergeCmd)
 }

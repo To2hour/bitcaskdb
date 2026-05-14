@@ -83,8 +83,19 @@ func runREPL(db *bitcaskdb.DB) {
 			}
 			fmt.Println("OK")
 
+		case "STAT":
+			printStat(db)
+
+		case "MERGE":
+			fmt.Println("Merging...")
+			if err := db.Merge(); err != nil {
+				fmt.Fprintln(os.Stderr, "ERR", err)
+				continue
+			}
+			fmt.Println("OK")
+
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q, supported: PUT GET DEL EXIT\n", parts[0])
+			fmt.Fprintf(os.Stderr, "unknown command %q, supported: PUT GET DEL STAT MERGE EXIT\n", parts[0])
 		}
 	}
 }

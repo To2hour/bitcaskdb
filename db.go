@@ -5,6 +5,7 @@ import (
 	"bitcaskdb/util"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -370,4 +371,58 @@ func (db *DB) loadIndex() error {
 		return err
 	}
 	return nil
+}
+
+type Stat struct {
+	KeyCount        int     // 总键数量
+	DataFileCount   int     // 数据文件数量
+	TotalSize       int64   // 总磁盘空间占用 (字节)
+	ReclaimableSize int64   // 可回收空间 (字节)
+	DiskUtilization float64 // 磁盘利用率 (0-100%)
+}
+
+// Stat 获取数据库统计信息
+func (db *DB) Stat() (*Stat, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	stat := &Stat{}
+	stat.KeyCount = db.index.Size()
+
+	// 遍历目录，统计数据文件数量和总大小
+	entries, err := os.ReadDir(db.options.DirPath)
+	if err != nil {
+		return nil, err
+	}
+	// 抄的wal的open
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		var id int
+		if _, err := fmt.Sscanf(entry.Name(), "%d"+dataFileNameSuffix, &id); err != nil {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		stat.DataFileCount++
+		stat.TotalSize += info.Size()
+	}
+
+	// 统计索引中所有存活 key 占用的有效数据大小
+	var liveSize int64
+	iterator := db.index.Iterator(false)
+	for iterator.Valid() {
+		liveSize += int64(iterator.Value().ChunkSize)
+		iterator.Next()
+	}
+
+	stat.ReclaimableSize = stat.TotalSize - liveSize
+	if stat.TotalSize > 0 {
+		stat.DiskUtilization = float64(liveSize) / float64(stat.TotalSize) * 100
+	}
+
+	return stat, nil
 }

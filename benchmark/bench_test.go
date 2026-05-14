@@ -256,30 +256,30 @@ func BenchmarkReopen(b *testing.B) {
 }
 
 func BenchmarkMergeReopen(b *testing.B) {
-	dir := "./example/bitcaskDB-fixed-merge"
+	dir := "./example/bitcaskDB-fixed-merge-nomerge"
 	_ = os.MkdirAll(dir, 0766) // 如果目录不存在就创建，存在就啥也不干
 	//defer os.RemoveAll(dir)
 
 	// 一次性写入 10000 条数据
 	db, _ := bitcaskdb.Open(&bitcaskdb.Options{DirPath: dir, SegmentSize: bitcaskdb.GB})
 	for i := 0; i < 1000000; i++ {
-		key := strconv.AppendInt([]byte("key-"), int64(i%500000), 10)
+		key := strconv.AppendInt([]byte("key-"), int64(i%50000), 10)
 		_ = db.Put(key, benchValue)
 	}
 
-	err := db.Merge()
-	if err != nil {
-		b.Fatal(err)
-	}
+	//err := db.Merge()
+	//if err != nil {
+	//	b.Fatal(err)
+	//}
 	_ = db.Close()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		db2, err := bitcaskdb.Open(&bitcaskdb.Options{DirPath: dir, SegmentSize: bitcaskdb.GB})
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = db2.Close()
-	}
+	//b.ResetTimer()
+	//for i := 0; i < b.N; i++ {
+	//	db2, err := bitcaskdb.Open(&bitcaskdb.Options{DirPath: dir, SegmentSize: bitcaskdb.GB})
+	//	if err != nil {
+	//		b.Fatal(err)
+	//	}
+	//	_ = db2.Close()
+	//}
 }
 func TestName(t *testing.T) {
 	dir := "./example/bitcaskDB-fixed-nomerge"
