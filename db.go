@@ -205,7 +205,7 @@ func openDataWal(option *Options) (*wal.WAL, error) {
 		SegmentSize:    option.SegmentSize,
 		SegmentFileExt: dataFileNameSuffix,
 		//下面这两个不知道干嘛的，先不管
-		Sync:         false,
+		Sync:         option.Sync,
 		BytesPerSync: 0,
 	})
 	return open, err
